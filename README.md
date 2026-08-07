@@ -59,7 +59,7 @@ Outputs are accepted only when they match a configured pattern. Archive traversa
 ## Current MVP limitations
 
 - `cache` is parsed and encrypted but not yet connected to `actions/cache`; no workspace cache is persisted.
-- `status`, `logs`, and `cancel` are not implemented yet. Ctrl+C stops local polling and attempts release cleanup, but it does not yet cancel the runner.
+- `status`, `logs`, and an explicit `cancel` subcommand are not implemented yet. Ctrl+C cancels the matching runner using its opaque workflow run title and attempts release cleanup.
 - Releases deleted through the API may remain in GitHub backups according to GitHub's retention practices; they contain only age ciphertext.
 - The client currently has no configurable total workspace/output size limit beyond per-entry safety limits and GitHub's release asset limits.
 - If the runner is cancelled before uploading a result, the client waits until interrupted. A later version should correlate and poll the workflow run state.
