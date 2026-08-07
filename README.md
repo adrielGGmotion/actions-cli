@@ -8,6 +8,24 @@ remote cargo build --release
 remote npm run build
 ```
 
+## Install
+
+Linux and macOS binaries are installed to `~/.local/bin` by default. The installer downloads the pinned `v0.1.0` release and verifies its SHA-256 checksum:
+
+```console
+curl -fsSL https://raw.githubusercontent.com/adrielGGmotion/actions-cli/v0.1.0/install.sh | sh
+```
+
+Ensure `~/.local/bin` is on `PATH`. Override the destination with `REMOTE_INSTALL_DIR` or install a different release with `REMOTE_VERSION`.
+
+For OpenCode, copy the bundled skill into a project or global skill directory:
+
+```console
+mkdir -p .opencode/skills/remote-build
+curl -fsSL https://raw.githubusercontent.com/adrielGGmotion/actions-cli/v0.1.0/.opencode/skills/remote-build/SKILL.md \
+  -o .opencode/skills/remote-build/SKILL.md
+```
+
 ## Security design
 
 The worker repository is a transport and execution service, not the project repository. Each job uses an opaque prerelease with two assets:
