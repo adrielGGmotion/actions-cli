@@ -902,23 +902,29 @@ func (g *githubClient) deleteReleaseAndTag(ctx context.Context, releaseID int64,
 }
 
 func (g *githubClient) cancelJob(ctx context.Context, jobID string) error {
-	var runs struct {
-		WorkflowRuns []struct {
-			ID           int64  `json:"id"`
-			DisplayTitle string `json:"display_title"`
-			Status       string `json:"status"`
-		} `json:"workflow_runs"`
-	}
-	path := "/repos/" + g.repo + "/actions/runs?event=workflow_dispatch&per_page=50"
-	if err := g.api(ctx, "GET", path, nil, &runs); err != nil {
-		return err
-	}
-	for _, run := range runs.WorkflowRuns {
-		if run.DisplayTitle == "remote-"+jobID && run.Status != "completed" {
-			return g.api(ctx, "POST", fmt.Sprintf("/repos/%s/actions/runs/%d/cancel", g.repo, run.ID), nil, nil)
+	for {
+		var runs struct {
+			WorkflowRuns []struct {
+				ID           int64  `json:"id"`
+				DisplayTitle string `json:"display_title"`
+				Status       string `json:"status"`
+			} `json:"workflow_runs"`
+		}
+		path := "/repos/" + g.repo + "/actions/runs?event=workflow_dispatch&per_page=50"
+		if err := g.api(ctx, "GET", path, nil, &runs); err != nil {
+			return err
+		}
+		for _, run := range runs.WorkflowRuns {
+			if run.DisplayTitle == "remote-"+jobID && run.Status != "completed" {
+				return g.api(ctx, "POST", fmt.Sprintf("/repos/%s/actions/runs/%d/cancel", g.repo, run.ID), nil, nil)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("matching active workflow run not found")
+		case <-time.After(2 * time.Second):
 		}
 	}
-	return errors.New("matching active workflow run not found")
 }
 
 var _ = bufio.ErrInvalidUnreadByte
