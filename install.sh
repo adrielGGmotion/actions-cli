@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-version="${REMOTE_VERSION:-v0.1.0}"
+version="${REMOTE_VERSION:-v0.1.1}"
 install_dir="${REMOTE_INSTALL_DIR:-$HOME/.local/bin}"
 repo="adrielGGmotion/actions-cli"
 
@@ -38,7 +38,7 @@ else
 fi
 
 test "$actual" = "$expected" || { echo "remote: checksum verification failed" >&2; exit 1; }
-tar -xzf "$tmp/$archive" -C "$tmp" remote
+tar -xzf "$tmp/$archive" -C "$tmp" --no-same-owner remote
 mkdir -p "$install_dir"
 install -m 0755 "$tmp/remote" "$install_dir/remote"
 echo "remote installed to $install_dir/remote"
