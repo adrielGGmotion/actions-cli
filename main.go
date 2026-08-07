@@ -178,6 +178,15 @@ func runRemote(argv []string) int {
 	fmt.Fprintln(os.Stderr, "remote: job submitted")
 	resultPath := filepath.Join(tmp, "result.age")
 	if err := gh.waitResult(ctx, jobID, resultPath); err != nil {
+		if errors.Is(err, context.Canceled) {
+			cancelCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if cancelErr := gh.cancelJob(cancelCtx, jobID); cancelErr != nil {
+				fmt.Fprintln(os.Stderr, "remote: warning: runner cancellation failed:", cancelErr)
+			} else {
+				fmt.Fprintln(os.Stderr, "remote: runner cancelled")
+			}
+			cancel()
+		}
 		return fail(err)
 	}
 	res, err := unpackResult(root, resultPath, replyID, cfg.Outputs)
@@ -818,13 +827,17 @@ func (g *githubClient) upload(ctx context.Context, uploadURL, name, path string)
 	}
 	req.Header.Set("Authorization", "Bearer "+g.token)
 	req.Header.Set("Content-Type", "application/octet-stream")
+	if st, err := f.Stat(); err == nil {
+		req.ContentLength = st.Size()
+	}
 	resp, err := g.http.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("asset upload: %s", resp.Status)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("asset upload: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	return nil
 }
@@ -886,6 +899,26 @@ func (g *githubClient) deleteReleaseAndTag(ctx context.Context, releaseID int64,
 		return err
 	}
 	return g.api(ctx, "DELETE", "/repos/"+g.repo+"/git/refs/tags/remote-job-"+id, nil, nil)
+}
+
+func (g *githubClient) cancelJob(ctx context.Context, jobID string) error {
+	var runs struct {
+		WorkflowRuns []struct {
+			ID           int64  `json:"id"`
+			DisplayTitle string `json:"display_title"`
+			Status       string `json:"status"`
+		} `json:"workflow_runs"`
+	}
+	path := "/repos/" + g.repo + "/actions/runs?event=workflow_dispatch&per_page=50"
+	if err := g.api(ctx, "GET", path, nil, &runs); err != nil {
+		return err
+	}
+	for _, run := range runs.WorkflowRuns {
+		if run.DisplayTitle == "remote-"+jobID && run.Status != "completed" {
+			return g.api(ctx, "POST", fmt.Sprintf("/repos/%s/actions/runs/%d/cancel", g.repo, run.ID), nil, nil)
+		}
+	}
+	return errors.New("matching active workflow run not found")
 }
 
 var _ = bufio.ErrInvalidUnreadByte
