@@ -1,0 +1,79 @@
+name: Remote worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Opaque job identifier
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: remote-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Prepare worker
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Download encrypted request
+        shell: bash
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          mkdir -p "$RUNNER_TEMP/remote"
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/remote-job-$JOB_ID")"
+          asset_id="$(jq -r '.assets[] | select(.name == "request.age") | .id' <<<"$release")"
+          test -n "$asset_id" && test "$asset_id" != null
+          gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" > "$RUNNER_TEMP/remote/request.age"
+      - name: Decrypt request
+        shell: bash
+        env:
+          REMOTE_AGE_IDENTITY: ${{ secrets.REMOTE_AGE_IDENTITY }}
+        run: |
+          set +x
+          go run . worker prepare --request "$RUNNER_TEMP/remote/request.age" --dir "$RUNNER_TEMP/remote/job"
+      - name: Execute job
+        shell: bash
+        run: |
+          set +x
+          go run . worker execute --dir "$RUNNER_TEMP/remote/job"
+      - name: Encrypt result
+        shell: bash
+        run: |
+          set +x
+          go run . worker pack --dir "$RUNNER_TEMP/remote/job" --result "$RUNNER_TEMP/remote/result.age"
+      - name: Upload encrypted result
+        shell: bash
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/remote-job-$JOB_ID")"
+          upload_url="$(jq -r '.upload_url' <<<"$release" | sed 's/{.*}//')"
+          curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Content-Type: application/octet-stream' \
+            --data-binary @"$RUNNER_TEMP/remote/result.age" \
+            "$upload_url?name=result.age" >/dev/null
+      - name: Clean plaintext
+        if: always()
+        shell: bash
+        run: |
+          set +x
+          find "$RUNNER_TEMP/remote" -mindepth 1 -delete 2>/dev/null || true
