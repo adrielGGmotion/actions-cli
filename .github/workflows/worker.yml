@@ -1,4 +1,5 @@
 name: Remote worker
+run-name: remote-${{ inputs.job_id }}
 
 on:
   workflow_dispatch:
